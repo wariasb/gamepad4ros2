@@ -1,0 +1,4 @@
+run from ros2 workspace root
+
+colcon build --packages-select gamepad4ros2
+
