@@ -13,7 +13,7 @@
 
 #include "ament_index_cpp/get_package_share_directory.hpp"
 #include "rclcpp/rclcpp.hpp"
-#include "std_msgs/msg/float32.hpp"
+#include "ar_interfaces/msg/control.hpp"
 
 namespace {
 struct AxisRange {
@@ -106,9 +106,7 @@ public:
     right_y_code_ = this->declare_parameter<int>("right_y_code", ABS_RY);
     deadzone_ = this->declare_parameter<double>("deadzone", 0.00);
 
-    steering_pub_ = this->create_publisher<std_msgs::msg::Float32>("/control/steering_command", 10);
-    throttle_pub_ = this->create_publisher<std_msgs::msg::Float32>("/control/throttle_command", 10);
-    brake_pub_ = this->create_publisher<std_msgs::msg::Float32>("/control/brake_command", 10);
+    control_pub_ = this->create_publisher<ar_interfaces::msg::Control>("/control", 10);
 
     open_device();
   }
@@ -193,22 +191,24 @@ private:
       RCLCPP_WARN(this->get_logger(), "Failed to query right_y_code range");
     }
 
-    publish_throttle_brake(0.0, 0.0);
-    publish_steering(0.0);
+    control_msg_ = ar_interfaces::msg::Control();
+    control_pub_->publish(control_msg_);
     RCLCPP_INFO(this->get_logger(), "Reading events from %s", device_path_.c_str());
   }
 
   void handle_abs_event(int code, int value) {
     if (code == left_x_code_) {
       const double norm = apply_deadzone(normalize_axis(value, left_x_range_));
-      //publish_steering(norm);
       const double steering = calculateSteering(norm, 3.0);
-      publish_steering(steering);
+      control_msg_.steering_command = static_cast<float>(steering);
+      control_pub_->publish(control_msg_);
     } else if (code == right_y_code_) {
       const double norm = apply_deadzone(normalize_axis(value, right_y_range_));
       const double throttle = clamp(-norm, 0.0, 1.0);
       const double brake = clamp(norm, 0.0, 1.0);
-      publish_throttle_brake(throttle, brake);
+      control_msg_.throttle_command = static_cast<float>(throttle);
+      control_msg_.brake_command = static_cast<float>(brake);
+      control_pub_->publish(control_msg_);
     }
   }
 
@@ -242,21 +242,6 @@ double calculateSteering(double rawInput, double exponent) {
   }
 
 
-  void publish_steering(double value) {
-    std_msgs::msg::Float32 msg;
-    msg.data = static_cast<float>(value);
-    steering_pub_->publish(msg);
-  }
-
-  void publish_throttle_brake(double throttle, double brake) {
-    std_msgs::msg::Float32 throttle_msg;
-    std_msgs::msg::Float32 brake_msg;
-    throttle_msg.data = static_cast<float>(throttle);
-    brake_msg.data = static_cast<float>(brake);
-    throttle_pub_->publish(throttle_msg);
-    brake_pub_->publish(brake_msg);
-  }
-
   std::string device_path_;
   int left_x_code_ = ABS_X;
   int right_y_code_ = ABS_RY;
@@ -266,9 +251,8 @@ double calculateSteering(double rawInput, double exponent) {
   AxisRange left_x_range_;
   AxisRange right_y_range_;
 
-  rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr steering_pub_;
-  rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr throttle_pub_;
-  rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr brake_pub_;
+  ar_interfaces::msg::Control control_msg_;
+  rclcpp::Publisher<ar_interfaces::msg::Control>::SharedPtr control_pub_;
 };
 
 int main(int argc, char **argv) {
